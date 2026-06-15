@@ -12,7 +12,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ====================
-// RUTAS DE PRUEBA
+// RUTAS DE PRUEBA (funcionan en local y producción)
 // ====================
 
 app.get('/api/health', (req, res) => {
@@ -58,6 +58,7 @@ app.post('/api/empresas', async (req, res) => {
             empresa: result.rows[0]
         });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ 
             success: false, 
             message: 'Error al crear empresa',
@@ -71,12 +72,13 @@ app.get('/api/empresas', async (req, res) => {
         const result = await pool.query('SELECT * FROM empresas ORDER BY id DESC');
         res.json({ success: true, empresas: result.rows });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
 // ====================
-// RUTAS DE IRO (simplificadas)
+// FUNCIONES DE UTILIDAD (normalizar y calcular crecimiento)
 // ====================
 
 const normalizar = (valor, min, max) => {
@@ -90,10 +92,22 @@ const calcularCrecimiento = (actual, anterior) => {
     return ((actual - anterior) / anterior) * 100;
 };
 
+// ====================
+// RUTAS DE IRO (Rendimiento Organizacional)
+// ====================
+
 app.post('/api/iro', async (req, res) => {
-    const { empresa_id, ingresos, ingresos_anterior, utilidad, utilidad_anterior, csat, nps, retencion_clientes, cumplimiento_plazos, eficiencia, indice_calidad, rotacion_personal, horas_capacitacion, compromiso } = req.body;
+    const { 
+        empresa_id, 
+        ingresos, ingresos_anterior, 
+        utilidad, utilidad_anterior,
+        csat, nps, retencion_clientes,
+        cumplimiento_plazos, eficiencia, indice_calidad,
+        rotacion_personal, horas_capacitacion, compromiso 
+    } = req.body;
     
     try {
+        // Calcular dimensiones
         const crecimientoIngresos = calcularCrecimiento(ingresos, ingresos_anterior);
         const crecimientoUtilidad = calcularCrecimiento(utilidad, utilidad_anterior);
         
@@ -113,20 +127,76 @@ app.post('/api/iro', async (req, res) => {
         
         res.json({ success: true, message: 'Cálculo IRO realizado', resultados });
     } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Guardar evaluación IRO
+app.post('/api/iro/guardar', async (req, res) => {
+    const { empresa_id, ingresos, ingresos_anterior, utilidad, utilidad_anterior, csat, nps, retencion_clientes, cumplimiento_plazos, eficiencia, indice_calidad, rotacion_personal, horas_capacitacion, compromiso, resultados } = req.body;
+    
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS evaluaciones_iro (
+                id SERIAL PRIMARY KEY,
+                empresa_id INTEGER,
+                ingresos DECIMAL(15,2), ingresos_anterior DECIMAL(15,2),
+                utilidad DECIMAL(15,2), utilidad_anterior DECIMAL(15,2),
+                csat DECIMAL(5,2), nps DECIMAL(6,2), retencion_clientes DECIMAL(5,2),
+                cumplimiento_plazos DECIMAL(5,2), eficiencia DECIMAL(5,2), indice_calidad DECIMAL(5,2),
+                rotacion_personal DECIMAL(5,2), horas_capacitacion DECIMAL(10,2), compromiso DECIMAL(5,2),
+                dim_financiera DECIMAL(5,2), dim_clientes DECIMAL(5,2),
+                dim_procesos DECIMAL(5,2), dim_aprendizaje DECIMAL(5,2), iro_total DECIMAL(5,2),
+                fecha_evaluacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        
+        const result = await pool.query(`
+            INSERT INTO evaluaciones_iro (
+                empresa_id, ingresos, ingresos_anterior, utilidad, utilidad_anterior,
+                csat, nps, retencion_clientes, cumplimiento_plazos, eficiencia, indice_calidad,
+                rotacion_personal, horas_capacitacion, compromiso,
+                dim_financiera, dim_clientes, dim_procesos, dim_aprendizaje, iro_total
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+            RETURNING id
+        `, [
+            empresa_id, ingresos, ingresos_anterior, utilidad, utilidad_anterior,
+            csat, nps, retencion_clientes, cumplimiento_plazos, eficiencia, indice_calidad,
+            rotacion_personal, horas_capacitacion, compromiso,
+            resultados.dim_financiera, resultados.dim_clientes,
+            resultados.dim_procesos, resultados.dim_aprendizaje,
+            resultados.iro_total
+        ]);
+        
+        res.json({ success: true, message: 'Evaluación IRO guardada', id: result.rows[0].id });
+    } catch (error) {
+        console.error(error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
 app.get('/api/iro/empresa/:empresa_id', async (req, res) => {
-    res.json({ success: true, message: 'GET IRO funcionando', empresa_id: req.params.empresa_id });
+    const { empresa_id } = req.params;
+    try {
+        const result = await pool.query(`SELECT * FROM evaluaciones_iro WHERE empresa_id = $1 ORDER BY fecha_evaluacion DESC`, [empresa_id]);
+        res.json({ success: true, evaluaciones: result.rows });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 // ====================
-// RUTAS DE ICI (simplificadas)
+// RUTAS DE ICI (Capacidad de Innovación)
 // ====================
 
 app.post('/api/ici', async (req, res) => {
-    const { empresa_id, ventas_nuevos_productos, num_mejoras_productos, num_nuevos_servicios, porcentaje_digitalizacion, reduccion_tiempos_operativos, adopcion_tecnologias, nuevos_canales_venta, marketing_digital, campanas_innovadoras, horas_capacitacion_innovacion, alianzas_universidades, cultura_innovadora } = req.body;
+    const { 
+        ventas_nuevos_productos, num_mejoras_productos, num_nuevos_servicios,
+        porcentaje_digitalizacion, reduccion_tiempos_operativos, adopcion_tecnologias,
+        nuevos_canales_venta, marketing_digital, campanas_innovadoras,
+        horas_capacitacion_innovacion, alianzas_universidades, cultura_innovadora 
+    } = req.body;
     
     try {
         const dimProductos = (normalizar(ventas_nuevos_productos, 0, 100) + normalizar(num_mejoras_productos, 0, 20) + normalizar(num_nuevos_servicios, 0, 10)) / 3;
@@ -149,44 +219,24 @@ app.post('/api/ici', async (req, res) => {
     }
 });
 
-app.get('/api/ici/empresa/:empresa_id', async (req, res) => {
-    res.json({ success: true, message: 'GET ICI funcionando', empresa_id: req.params.empresa_id });
-});
-
-// ====================
-// GUARDAR EVALUACIONES EN BD
-// ====================
-
-app.post('/api/iro/guardar', async (req, res) => {
-    const { empresa_id, ingresos, ingresos_anterior, utilidad, utilidad_anterior, csat, nps, retencion_clientes, cumplimiento_plazos, eficiencia, indice_calidad, rotacion_personal, horas_capacitacion, compromiso, resultados } = req.body;
-    
-    try {
-        const result = await pool.query(`
-            INSERT INTO evaluaciones_iro (
-                empresa_id, ingresos, ingresos_anterior, utilidad, utilidad_anterior,
-                csat, nps, retencion_clientes, cumplimiento_plazos, eficiencia,
-                indice_calidad, rotacion_personal, horas_capacitacion, compromiso,
-                dim_financiera, dim_clientes, dim_procesos, dim_aprendizaje, iro_total
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-            RETURNING *
-        `, [
-            empresa_id, ingresos, ingresos_anterior, utilidad, utilidad_anterior,
-            csat, nps, retencion_clientes, cumplimiento_plazos, eficiencia,
-            indice_calidad, rotacion_personal, horas_capacitacion, compromiso,
-            resultados.dim_financiera, resultados.dim_clientes, resultados.dim_procesos,
-            resultados.dim_aprendizaje, resultados.iro_total
-        ]);
-        
-        res.json({ success: true, message: 'Evaluación IRO guardada', id: result.rows[0].id });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
+// Guardar evaluación ICI
 app.post('/api/ici/guardar', async (req, res) => {
     const { empresa_id, ventas_nuevos_productos, num_mejoras_productos, num_nuevos_servicios, porcentaje_digitalizacion, reduccion_tiempos_operativos, adopcion_tecnologias, nuevos_canales_venta, marketing_digital, campanas_innovadoras, horas_capacitacion_innovacion, alianzas_universidades, cultura_innovadora, resultados } = req.body;
     
     try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS evaluaciones_ici (
+                id SERIAL PRIMARY KEY,
+                empresa_id INTEGER,
+                ventas_nuevos_productos DECIMAL(5,2), num_mejoras_productos INTEGER, num_nuevos_servicios INTEGER,
+                porcentaje_digitalizacion DECIMAL(5,2), reduccion_tiempos_operativos DECIMAL(5,2), adopcion_tecnologias DECIMAL(5,2),
+                nuevos_canales_venta INTEGER, marketing_digital DECIMAL(5,2), campanas_innovadoras INTEGER,
+                horas_capacitacion_innovacion INTEGER, alianzas_universidades INTEGER, cultura_innovadora DECIMAL(5,2),
+                dim_productos DECIMAL(5,2), dim_procesos DECIMAL(5,2), dim_comercial DECIMAL(5,2), dim_organizacional DECIMAL(5,2), ici_total DECIMAL(5,2),
+                fecha_evaluacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        
         const result = await pool.query(`
             INSERT INTO evaluaciones_ici (
                 empresa_id, ventas_nuevos_productos, num_mejoras_productos, num_nuevos_servicios,
@@ -195,7 +245,7 @@ app.post('/api/ici/guardar', async (req, res) => {
                 horas_capacitacion_innovacion, alianzas_universidades, cultura_innovadora,
                 dim_productos, dim_procesos, dim_comercial, dim_organizacional, ici_total
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-            RETURNING *
+            RETURNING id
         `, [
             empresa_id, ventas_nuevos_productos, num_mejoras_productos, num_nuevos_servicios,
             porcentaje_digitalizacion, reduccion_tiempos_operativos, adopcion_tecnologias,
@@ -211,138 +261,25 @@ app.post('/api/ici/guardar', async (req, res) => {
     }
 });
 
-// ====================
-// GUARDAR EVALUACIONES IRO
-// ====================
-app.post('/api/iro/guardar', async (req, res) => {
-    const { 
-        empresa_id, 
-        ingresos, ingresos_anterior, 
-        utilidad, utilidad_anterior,
-        csat, nps, retencion_clientes,
-        cumplimiento_plazos, eficiencia, indice_calidad,
-        rotacion_personal, horas_capacitacion, compromiso,
-        resultados 
-    } = req.body;
-    
-    console.log('📝 Guardando evaluación IRO para empresa:', empresa_id);
-    
+app.get('/api/ici/empresa/:empresa_id', async (req, res) => {
+    const { empresa_id } = req.params;
     try {
-        // Verificar si la tabla existe, si no, crearla
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS evaluaciones_iro (
-                id SERIAL PRIMARY KEY,
-                empresa_id INTEGER,
-                ingresos DECIMAL, ingresos_anterior DECIMAL,
-                utilidad DECIMAL, utilidad_anterior DECIMAL,
-                csat DECIMAL, nps DECIMAL, retencion_clientes DECIMAL,
-                cumplimiento_plazos DECIMAL, eficiencia DECIMAL, indice_calidad DECIMAL,
-                rotacion_personal DECIMAL, horas_capacitacion DECIMAL, compromiso DECIMAL,
-                dim_financiera DECIMAL, dim_clientes DECIMAL,
-                dim_procesos DECIMAL, dim_aprendizaje DECIMAL, iro_total DECIMAL,
-                fecha_evaluacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-        
-        const result = await pool.query(`
-            INSERT INTO evaluaciones_iro (
-                empresa_id, 
-                ingresos, ingresos_anterior, 
-                utilidad, utilidad_anterior,
-                csat, nps, retencion_clientes,
-                cumplimiento_plazos, eficiencia, indice_calidad,
-                rotacion_personal, horas_capacitacion, compromiso,
-                dim_financiera, dim_clientes, dim_procesos, dim_aprendizaje, iro_total
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-            RETURNING id
-        `, [
-            empresa_id,
-            ingresos, ingresos_anterior,
-            utilidad, utilidad_anterior,
-            csat, nps, retencion_clientes,
-            cumplimiento_plazos, eficiencia, indice_calidad,
-            rotacion_personal, horas_capacitacion, compromiso,
-            resultados.dim_financiera, resultados.dim_clientes,
-            resultados.dim_procesos, resultados.dim_aprendizaje,
-            resultados.iro_total
-        ]);
-        
-        res.json({ 
-            success: true, 
-            message: 'Evaluación IRO guardada exitosamente',
-            id: result.rows[0].id
-        });
+        const result = await pool.query(`SELECT * FROM evaluaciones_ici WHERE empresa_id = $1 ORDER BY fecha_evaluacion DESC`, [empresa_id]);
+        res.json({ success: true, evaluaciones: result.rows });
     } catch (error) {
-        console.error('Error al guardar IRO:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: error.message 
-        });
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
 // ====================
-// GUARDAR EVALUACIONES ICI
+// MANEJO DE RUTAS NO ENCONTRADAS
 // ====================
-app.post('/api/ici/guardar', async (req, res) => {
-    const { 
-        empresa_id,
-        ventas_nuevos_productos, num_mejoras_productos, num_nuevos_servicios,
-        porcentaje_digitalizacion, reduccion_tiempos_operativos, adopcion_tecnologias,
-        nuevos_canales_venta, marketing_digital, campanas_innovadoras,
-        horas_capacitacion_innovacion, alianzas_universidades, cultura_innovadora,
-        resultados 
-    } = req.body;
-    
-    console.log('📝 Guardando evaluación ICI para empresa:', empresa_id);
-    
-    try {
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS evaluaciones_ici (
-                id SERIAL PRIMARY KEY,
-                empresa_id INTEGER,
-                ventas_nuevos_productos DECIMAL, num_mejoras_productos INTEGER, num_nuevos_servicios INTEGER,
-                porcentaje_digitalizacion DECIMAL, reduccion_tiempos_operativos DECIMAL, adopcion_tecnologias DECIMAL,
-                nuevos_canales_venta INTEGER, marketing_digital DECIMAL, campanas_innovadoras INTEGER,
-                horas_capacitacion_innovacion INTEGER, alianzas_universidades INTEGER, cultura_innovadora DECIMAL,
-                dim_productos DECIMAL, dim_procesos DECIMAL, dim_comercial DECIMAL, dim_organizacional DECIMAL, ici_total DECIMAL,
-                fecha_evaluacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-        
-        const result = await pool.query(`
-            INSERT INTO evaluaciones_ici (
-                empresa_id,
-                ventas_nuevos_productos, num_mejoras_productos, num_nuevos_servicios,
-                porcentaje_digitalizacion, reduccion_tiempos_operativos, adopcion_tecnologias,
-                nuevos_canales_venta, marketing_digital, campanas_innovadoras,
-                horas_capacitacion_innovacion, alianzas_universidades, cultura_innovadora,
-                dim_productos, dim_procesos, dim_comercial, dim_organizacional, ici_total
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-            RETURNING id
-        `, [
-            empresa_id,
-            ventas_nuevos_productos, num_mejoras_productos, num_nuevos_servicios,
-            porcentaje_digitalizacion, reduccion_tiempos_operativos, adopcion_tecnologias,
-            nuevos_canales_venta, marketing_digital, campanas_innovadoras,
-            horas_capacitacion_innovacion, alianzas_universidades, cultura_innovadora,
-            resultados.dim_productos, resultados.dim_procesos,
-            resultados.dim_comercial, resultados.dim_organizacional,
-            resultados.ici_total
-        ]);
-        
-        res.json({ 
-            success: true, 
-            message: 'Evaluación ICI guardada exitosamente',
-            id: result.rows[0].id
-        });
-    } catch (error) {
-        console.error('Error al guardar ICI:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: error.message 
-        });
-    }
+
+app.use('*', (req, res) => {
+    res.status(404).json({ 
+        success: false, 
+        message: `Ruta no encontrada: ${req.method} ${req.originalUrl}` 
+    });
 });
 
 // ====================
@@ -356,6 +293,7 @@ app.listen(PORT, () => {
     📡 Puerto: ${PORT}
     🔗 API disponible en: http://localhost:${PORT}
     🧪 Prueba: http://localhost:${PORT}/api/health
+    🌐 Producción: https://sistema-evaluacion-backend.onrender.com
     ========================================
     `);
 });
